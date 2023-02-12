@@ -9,6 +9,7 @@ import numpy as np
 from sklearn.preprocessing import StandardScaler
 import random
 import tensorflow as tf
+from sklearn.model_selection import train_test_split
 
 def OH_encode(data): 
     data=data.copy()
@@ -80,7 +81,7 @@ def eval_obj(valid, objectives):
     y = np.transpose(y)
     return y
 
-def gen_toy_dataset(samplingfunction, validityfunction, objectives, rangearr, scaling):
+def gen_toy_dataset(samplingfunction, validityfunction, objectives, rangearr, holdout_frac, scaling):
     valid, invalid = samplingfunction(validityfunction, rangearr)
     if valid == []:
         raise Exception("No Valid Samples Generated")
@@ -93,7 +94,11 @@ def gen_toy_dataset(samplingfunction, validityfunction, objectives, rangearr, sc
             invalid = scaler.transform(invalid)
     else:
         scaler = None
-    return valid, invalid, scaler
+    if holdout_frac>0:
+        valid, holdout = train_test_split(valid, test_size=holdout_frac, random_state=0)
+    else:
+        holdout = None
+    return valid, invalid, holdout, scaler
 
 
 def gen_background_plot(validityfunction, rangearr):

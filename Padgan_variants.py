@@ -211,7 +211,6 @@ def evaluate_MO(y):
 #     y=tf.math.maximum(y, 0.0)
 #     y=tf.divide(ref,(ref+y))
 #     slicelist=[]
-    print(y)
     mask=tf.random.uniform(tf.shape(y), minval=0, maxval=1)
     masksums=tf.reduce_sum(mask, axis=1)
     masksums=tf.reshape(masksums, (-1, 1))
