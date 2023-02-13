@@ -13,3 +13,12 @@ This repo contains implementations for:
 - Multi-Objective Pefromance-Aware Diverse GAN
 - Design Target Achievement Index GAN
 - Plotting distribution matching, constraint satisfaction, and performance achievement problems on 2D data
+
+The following packages are needed:
+- Tensorflow
+- Matplotlib
+- Pymoo
+- Imageio
+- Pandas
+- Scikit-learn
+- Openpyxl

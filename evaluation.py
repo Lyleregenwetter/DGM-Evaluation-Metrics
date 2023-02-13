@@ -11,7 +11,6 @@ import numpy as np
 import pandas as pd
 from scipy.spatial.distance import pdist, squareform
 from scipy.spatial import ConvexHull
-from sklearn.preprocessing import StandardScaler
 import sklearn
 import random
 from tqdm import trange
@@ -124,8 +123,7 @@ def gen_gen_distance_wrapper(flag, reduction="min", distance="Euclidean"):
         if flag == "x":
             x = x_eval
         elif flag == "y":
-            scaler = StandardScaler()
-            x = scaler.fit_transform(y_eval)
+            x = y_eval
         elif flag == "all":
             x = pd.concat([x_eval, y_eval], axis=0)
         else:
@@ -149,8 +147,7 @@ def distance_to_centroid_wrapper(flag, distance="Euclidean"):
         if flag == "x":
             x = x_eval
         elif flag == "y":
-            scaler = StandardScaler()
-            x = scaler.fit_transform(y_eval)
+            x = y_eval
         elif flag == "all":
             x = pd.concat([x_eval, y_eval], axis=0)
         else:
@@ -203,9 +200,8 @@ def gen_data_distance_wrapper(flag, reduction="min", distance="Euclidean"):
             x = x_eval
             data = x_data
         elif flag == "y":
-            scaler = StandardScaler()
-            x = scaler.fit_transform(y_eval)
-            data = scaler.transform(y_data)
+            x = y_eval
+            data = y_data
         elif flag == "all":
             x = pd.concat([x_eval, y_eval], axis=0)
             data = pd.concat([x_data, y_data], axis=0)
@@ -232,11 +228,10 @@ def data_gen_distance_wrapper(flag, reduction="min", distance="Euclidean"):
             x = x_eval
             data = x_data
         elif flag == "y":
-            scaler = StandardScaler()
-            x = scaler.fit_transform(y_eval)
-            data = scaler.transform(y_data)
+            x = y_eval
+            data = y_data
         elif flag == "all":
-            x = pd.concat([x_eval, y_eval], axis=0)
+            y_eval = pd.concat([x_eval, y_eval], axis=0)
             data = pd.concat([x_data, y_data], axis=0)
         else:
             raise Exception("Unknown flag passed")
@@ -283,21 +278,21 @@ def DTAI_wrapper(direction, ref, p_, a_):
         scores=(scores-smin)/(smax-smin)
         return scores, tf.reduce_mean(scores)
     return DTAI
-def minimum_target_ratio_wrapper(direction, ref):
-    def minimum_target_ratio(x_eval, y_eval, x_data, y_data, n_data, scorebars, direction=direction, ref=ref):
-        if scorebars:
-            print("Calculating Minimum Target Ratio")
-        y_eval = tf.cast(y_eval, "float32")
-        ref = tf.cast(ref, "float32")
-        if direction=="maximize":
-            res = tf.divide(y_eval, ref)
-        elif direction=="minimize":
-            res = tf.divide(ref, y_eval)
-        else:
-            raise Exception("Unknown optimization direction, expected maximize or minimize")
-        scores = tf.reduce_min(res, axis=1)
-        return scores, tf.reduce_mean(scores)
-    return minimum_target_ratio
+# def minimum_target_ratio_wrapper(direction, ref):
+#     def minimum_target_ratio(x_eval, y_eval, x_data, y_data, n_data, scorebars, direction=direction, ref=ref):
+#         if scorebars:
+#             print("Calculating Minimum Target Ratio")
+#         y_eval = tf.cast(y_eval, "float32")
+#         ref = tf.cast(ref, "float32")
+#         if direction=="maximize":
+#             res = tf.divide(y_eval, ref)
+#         elif direction=="minimize":
+#             res = tf.divide(ref, y_eval)
+#         else:
+#             raise Exception("Unknown optimization direction, expected maximize or minimize")
+#         scores = tf.reduce_min(res, axis=1)
+#         return scores, tf.reduce_mean(scores)
+#     return minimum_target_ratio
 
 def weighted_target_success_rate_wrapper(direction, ref, p_):
     def weighted_target_success_rate(x_eval, y_eval, x_data, y_data, n_data, scorebars, direction=direction, ref=ref, p_=p_):
@@ -334,12 +329,23 @@ def gen_neg_distance_wrapper(reduction = "min", distance="Euclidean"):
         return scores, tf.reduce_mean(scores)
     return gen_neg_distance
 
-def MMD_wrapper(sigma=1, biased=True):
-    def MMD(x_eval, y_eval, x_data, y_data, n_data, scorebars, sigma=sigma, biased=biased):
+def MMD_wrapper(flag, sigma=1, biased=True):
+    def MMD(x_eval, y_eval, x_data, y_data, n_data, scorebars, flag=flag, sigma=sigma, biased=biased):
         if scorebars:
             print("Calculating Maximum Mean Discrepancy")
-        X = x_eval
-        Y = x_data
+        if flag == "x":
+            x = x_eval
+            data = x_data
+        elif flag == "y":
+            x = y_eval
+            data = y_data
+        elif flag == "all":
+            y_eval = pd.concat([x_eval, y_eval], axis=0)
+            data = pd.concat([x_data, y_data], axis=0)
+        else:
+            raise Exception("Unknown flag passed")
+        X = x
+        Y = data
         X = tf.convert_to_tensor(X, dtype=tf.float32)
         Y = tf.convert_to_tensor(Y, dtype=tf.float32)
         gamma = 1 / (2 * sigma**2)
@@ -372,58 +378,58 @@ def MMD_wrapper(sigma=1, biased=True):
         return None, mmd2.numpy()
     return MMD
 
-def MMD2_wrapper(batch_size = 128, sigma = [1,2,4,8,16], eps=10e-7):
-    def MMD2(x_eval, y_eval, x_data, y_data, n_data, scorebars, batch_size = batch_size, sigma = sigma, eps=eps):
-        x_eval=tf.cast(x_eval, "float32")
-        x_data=tf.cast(x_data, "float32")
-        gen_x = tf.data.Dataset.from_tensor_slices(x_eval).batch(batch_size)
-        x = tf.data.Dataset.from_tensor_slices(x_data).batch(batch_size)
-        print(x)
-#         for i in range(
+# def MMD2_wrapper(batch_size = 128, sigma = [1,2,4,8,16], eps=10e-7):
+#     def MMD2(x_eval, y_eval, x_data, y_data, n_data, scorebars, batch_size = batch_size, sigma = sigma, eps=eps):
+#         x_eval=tf.cast(x_eval, "float32")
+#         x_data=tf.cast(x_data, "float32")
+#         gen_x = tf.data.Dataset.from_tensor_slices(x_eval).batch(batch_size)
+#         x = tf.data.Dataset.from_tensor_slices(x_data).batch(batch_size)
+#         print(x)
+# #         for i in range(
             
             
-    #     slim = tf.contrib.slim
-    #     x = slim.flatten(x)
-    #     gen_x = slim.flatten(gen_x)
+#     #     slim = tf.contrib.slim
+#     #     x = slim.flatten(x)
+#     #     gen_x = slim.flatten(gen_x)
 
-        # concatenation of the generated images and images from the dataset
-        # first 'N' rows are the generated ones, next 'M' are from the data
-        X = tf.concat([gen_x, x],0)
+#         # concatenation of the generated images and images from the dataset
+#         # first 'N' rows are the generated ones, next 'M' are from the data
+#         X = tf.concat([gen_x, x],0)
 
-        # dot product between all combinations of rows in 'X'
-        XX = tf.matmul(X, tf.transpose(X))
+#         # dot product between all combinations of rows in 'X'
+#         XX = tf.matmul(X, tf.transpose(X))
 
-        # dot product of rows with themselves
-        X2 = tf.reduce_sum(X * X, 1, keepdims = True)
+#         # dot product of rows with themselves
+#         X2 = tf.reduce_sum(X * X, 1, keepdims = True)
 
-        # exponent entries of the RBF kernel (without the sigma) for each
-        # combination of the rows in 'X'
-        # -0.5 * (x^Tx - 2*x^Ty + y^Ty)
-        exponent = XX - 0.5 * X2 - 0.5 * tf.transpose(X2)
+#         # exponent entries of the RBF kernel (without the sigma) for each
+#         # combination of the rows in 'X'
+#         # -0.5 * (x^Tx - 2*x^Ty + y^Ty)
+#         exponent = XX - 0.5 * X2 - 0.5 * tf.transpose(X2)
 
-        # scaling constants for each of the rows in 'X'
-        s = makeScaleMatrix(batch_size, batch_size)
+#         # scaling constants for each of the rows in 'X'
+#         s = makeScaleMatrix(batch_size, batch_size)
 
-        # scaling factors of each of the kernel values, corresponding to the
-        # exponent values
-        S = tf.matmul(s, tf.transpose(s))
+#         # scaling factors of each of the kernel values, corresponding to the
+#         # exponent values
+#         S = tf.matmul(s, tf.transpose(s))
 
-        loss1 = 0
-        loss2 = 0
-        mmd = 0
+#         loss1 = 0
+#         loss2 = 0
+#         mmd = 0
 
-        # for each bandwidth parameter, compute the MMD value and add them all
-        n = batch_size
-        n_sq = float(n*n)
-        for i in range(len(sigma)):
+#         # for each bandwidth parameter, compute the MMD value and add them all
+#         n = batch_size
+#         n_sq = float(n*n)
+#         for i in range(len(sigma)):
 
-            # kernel values for each combination of the rows in 'X' 
-            kernel_val = tf.exp(1.0 / sigma[i] * exponent)
-            mmd += tf.reduce_sum(S * kernel_val)
+#             # kernel values for each combination of the rows in 'X' 
+#             kernel_val = tf.exp(1.0 / sigma[i] * exponent)
+#             mmd += tf.reduce_sum(S * kernel_val)
 
 
-        return None, tf.sqrt(mmd)
-    return MMD2
+#         return None, tf.sqrt(mmd)
+#     return MMD2
 
 def F_wrapper(flag, beta=1, num_clusters=20, num_angles=1001, num_runs=10, enforce_balance=False):
     def calc_prd(x_eval, y_eval, x_data, y_data, n_data, scorebars):

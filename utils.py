@@ -371,13 +371,13 @@ def score(timestr, functions, methods, metrics, numinst, scaling, cond_dist, sco
                     y_fake = None
                 
                 for j in range(len(metrics)):
-                    if metrics.index[j]=="Validity":
+                    if metrics.values[j][1]=="Validity":
                         allscores, meanscore = evaluation.evaluate_validity(x_fake, validityfunction)
-                    elif metrics.index[j]=="Rediscovery":
-                        allscores, meanscore = metrics.values[j][1](x_fake_scaled, y_fake, holdout, holdout_y, invalid_scaled, scorebars)
-                    elif metrics.index[j]=="Conditioning Reconstruction":
-                        allscores, meanscore = metrics.values[j][1](x_fake_scaled, y_fake, valid_scaled, c_valid, invalid_scaled, scorebars)
-                    elif metrics.index[j]=="Conditioning Adherence":
+                    elif metrics.values[j][1]=="Rediscovery":
+                        allscores, meanscore = metrics.values[j][2](x_fake_scaled, y_fake, holdout, holdout_y, invalid_scaled, scorebars)
+                    elif metrics.values[j][1]=="Conditioning Reconstruction":
+                        allscores, meanscore = metrics.values[j][2](x_fake_scaled, y_fake, valid_scaled, c_valid, invalid_scaled, scorebars)
+                    elif metrics.values[j][1]=="Conditioning Adherence":
                         c_gen = load_data.eval_obj(x_fake, [cond_func])
                         allscores=None
                         meanscore = sklearn.metrics.mean_squared_error(c_gen, np.ones_like(c_gen)*cond)
