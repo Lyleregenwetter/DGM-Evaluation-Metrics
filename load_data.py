@@ -97,7 +97,7 @@ def gen_toy_dataset(samplingfunction, validityfunction, objectives, rangearr, ho
     if holdout_frac>0:
         valid, holdout = train_test_split(valid, test_size=holdout_frac, random_state=0)
     else:
-        holdout = None
+        holdout = []
     return valid, invalid, holdout, scaler
 
 

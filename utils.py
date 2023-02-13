@@ -12,7 +12,7 @@ from IPython.display import display
 
 import load_data
 
-def fit_and_generate(functions, methods, numinst, numgen, scaling, validity_status, obj_status, conditional_status, holdout = 0):
+def fit_and_generate(functions, methods, numinst, numgen, scaling, obj_status, conditional_status, holdout = 0):
     
     
     timestr = time.strftime("%Y%m%d-%H%M%S")
@@ -44,7 +44,7 @@ def fit_and_generate(functions, methods, numinst, numgen, scaling, validity_stat
                 y_valid = load_data.eval_obj(valid, objectives)
             else:
                 y_valid = None
-            
+            print(conditional_status)
             #Evaluate condition value for all datapoints
             if conditional_status:
                 c_valid = load_data.eval_obj(valid, [cond_func])
@@ -342,6 +342,8 @@ def score(timestr, functions, methods, metrics, numinst, scaling, cond_dist, sco
                 #If rediscovery in metrics, calculate y values for holdout
                 if "Rediscovery" in metrics:
                     holdout_y = load_data.eval_obj(valid, objectives)
+            else:
+                y_valid=None
                 
             if cond_dist:
                 c_valid = load_data.eval_obj(valid, [cond_func])
