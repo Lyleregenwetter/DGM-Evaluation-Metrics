@@ -105,8 +105,7 @@ def load_generated(timestr, numinst, numfunc):
 
 def plot(ax, rangearr, xx, yy, Z, x, y, x2,y2, title, boundary=0.0, plottype = "generated", validity_status=0, color = "red", target=None):
     
-    font = {'family' : 'normal',
-        'weight' : 'bold',
+    font = {'weight' : 'bold',
         'size'   : 30}
     plt.rc('font', **font)
     
@@ -277,8 +276,7 @@ def plot_all(timestr, functions, methods, numinst, scaling, validity_status, obj
                 if validity_status:
                     labels, _ = evaluation.evaluate_validity(x_fake, validityfunction)
                     labels = labels.astype(bool)
-                    plot(fig.axes[res_idx], rangearr, xx, yy, Z, x_fake[:,0][labels], x_fake[:,1][labels], x_fake[:,0][~labels], x_fake[:,1][~labels], 
-                         methods.index[i], plottype="generated", validity_status = validity_status)                
+                    plot(fig.axes[res_idx], rangearr, xx, yy, Z, x_fake[:,0][labels], x_fake[:,1][labels], x_fake[:,0][~labels], x_fake[:,1][~labels], methods.index[i], plottype="generated", validity_status = validity_status, color=color)                
                 else:
                     plot(fig.axes[res_idx], rangearr, xx, yy, Z, x_fake[:,0], x_fake[:,1], valid[:,0], valid[:,1], methods.index[i], 
                          plottype="generated", validity_status = validity_status, color=color)
@@ -395,6 +393,8 @@ def score(timestr, functions, methods, metrics, numinst, scaling, cond_dist, sco
         scoredf_raw = pd.DataFrame(meanscores, index=methods.index, columns = metrics.index).transpose()
         if numinst>1:
             scoredf = append_error(scoredf_raw, stds)
+        else:
+            scoredf = scoredf_raw.copy()
         if style:
             scoredf = highlight_best(scoredf, scoredf_raw, [v[0] for v in metrics.values])
         scoredf.columns.name=f"Problem {i+1} Scores:"
@@ -404,18 +404,18 @@ def score(timestr, functions, methods, metrics, numinst, scaling, cond_dist, sco
         display(scoredf)
 
     #average scores
-    meanscores = np.mean(scores, axis=(0,3))
-    stds = np.std(scores, axis=(0,3))
-    scoredf_raw = pd.DataFrame(meanscores, index=methods.index, columns = metrics.index).transpose()
-    if numinst*len(functions)>1:
+    if len(functions)>1:
+        meanscores = np.mean(scores, axis=(0,3))
+        stds = np.std(scores, axis=(0,3))
+        scoredf_raw = pd.DataFrame(meanscores, index=methods.index, columns = metrics.index).transpose()
         scoredf = append_error(scoredf_raw, stds)
-    if style:
-        scoredf = highlight_best(scoredf, scoredf_raw, [v[0] for v in metrics.values])
-    scoredf.columns.name = "Average scores:"
-    scoredf.to_excel(f"Results/{timestr}/Scores/average_scores.xlsx", index_label=scoredf.columns.name)
-    if not style:
-        scoredf.to_csv(f"Results/{timestr}/Scores/average_scores.csv", index_label=scoredf.columns.name)
-    display(scoredf)
+        if style:
+            scoredf = highlight_best(scoredf, scoredf_raw, [v[0] for v in metrics.values])
+        scoredf.columns.name = "Average scores:"
+        scoredf.to_excel(f"Results/{timestr}/Scores/average_scores.xlsx", index_label=scoredf.columns.name)
+        if not style:
+            scoredf.to_csv(f"Results/{timestr}/Scores/average_scores.csv", index_label=scoredf.columns.name)
+        display(scoredf)
 
 def reset_folder(folder):     
     if os.path.exists(folder) and os.path.isdir(folder):
