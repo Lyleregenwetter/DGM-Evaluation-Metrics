@@ -10,6 +10,7 @@ import time
 import pickle
 from IPython.display import display
 
+import evaluation
 import load_data
 
 def fit_and_generate(functions, methods, numinst, numgen, scaling, obj_status, conditional_status, holdout = 0):
@@ -44,7 +45,6 @@ def fit_and_generate(functions, methods, numinst, numgen, scaling, obj_status, c
                 y_valid = load_data.eval_obj(valid, objectives)
             else:
                 y_valid = None
-            print(conditional_status)
             #Evaluate condition value for all datapoints
             if conditional_status:
                 c_valid = load_data.eval_obj(valid, [cond_func])
@@ -181,7 +181,6 @@ def plot(ax, rangearr, xx, yy, Z, x, y, x2,y2, title, boundary=0.0, plottype = "
     ax.axis('off')
     
 def plot_all(timestr, functions, methods, numinst, scaling, validity_status, obj_status, conditional_status, cond_dist, color="red", plotobjs=None):
-    print(validity_status)
     generated, vs_s, is_s, hs_s, scaler_s= load_generated(timestr, numinst, len(functions))
     
 
@@ -394,7 +393,8 @@ def score(timestr, functions, methods, metrics, numinst, scaling, cond_dist, sco
         meanscores = np.mean(scores[i], axis=(2))
         stds = np.std(scores[i], axis=(2))
         scoredf_raw = pd.DataFrame(meanscores, index=methods.index, columns = metrics.index).transpose()
-        scoredf = append_error(scoredf_raw, stds)
+        if numinst>1:
+            scoredf = append_error(scoredf_raw, stds)
         if style:
             scoredf = highlight_best(scoredf, scoredf_raw, [v[0] for v in metrics.values])
         scoredf.columns.name=f"Problem {i+1} Scores:"
@@ -407,7 +407,8 @@ def score(timestr, functions, methods, metrics, numinst, scaling, cond_dist, sco
     meanscores = np.mean(scores, axis=(0,3))
     stds = np.std(scores, axis=(0,3))
     scoredf_raw = pd.DataFrame(meanscores, index=methods.index, columns = metrics.index).transpose()
-    scoredf = append_error(scoredf_raw, stds)
+    if numinst*len(functions)>1:
+        scoredf = append_error(scoredf_raw, stds)
     if style:
         scoredf = highlight_best(scoredf, scoredf_raw, [v[0] for v in metrics.values])
     scoredf.columns.name = "Average scores:"
