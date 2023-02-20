@@ -389,7 +389,7 @@ def score(timestr, functions, methods, metrics, numinst, scaling, cond_dist, sco
     
     reset_folder(f"Results/{timestr}/Scores")
     if plotscores:
-        barplot(scores, methods.index, metrics.index, timestr)
+        barplot(scores, methods.index, metrics.index, [v[0] for v in metrics.values], timestr)
         
     for i in range(np.shape(scores)[0]):
         meanscores = np.mean(scores[i], axis=(2))
@@ -421,8 +421,9 @@ def score(timestr, functions, methods, metrics, numinst, scaling, cond_dist, sco
             scoredf.to_csv(f"Results/{timestr}/Scores/average_scores.csv", index_label=scoredf.columns.name)
         display(scoredf)
 
-def barplot(scores, modelnames, metricnames, timestr):
+def barplot(scores, modelnames, metricnames, directions, timestr):
     dfs=[]
+    metricnames = [f"{metricnames[i]} ({directions[i]})" for i in range(len(directions))]
     for i in range(np.shape(scores)[0]):
         for j in range(np.shape(scores)[3]):
             df = pd.DataFrame(scores[i,:,:,j], columns = metricnames, index = modelnames)
