@@ -4,10 +4,12 @@ import os
 import shutil
 import matplotlib
 from matplotlib import pyplot as plt
-import imageio.v2 as imageio
+import seaborn as sns
+import imageio
 import sklearn 
 import time
 import pickle
+import textwrap
 from IPython.display import display
 
 import evaluation
@@ -298,7 +300,7 @@ def generate_anim(timestr):
     imageio.mimsave(f"Results/{timestr}/Allplots.gif", frames, 'GIF', fps=1)        
     
     
-def score(timestr, functions, methods, metrics, numinst, scaling, cond_dist, scorebars, plotobjs=None, style=True):
+def score(timestr, functions, methods, metrics, numinst, scaling, cond_dist, scorebars, plotobjs=None, style=True, plotscores=False):
     generated, vs_s, is_s, hs_s, scaler_s= load_generated(timestr, numinst, len(functions))
     
     scores=np.zeros((len(functions), len(methods), len(metrics), numinst))
@@ -384,9 +386,11 @@ def score(timestr, functions, methods, metrics, numinst, scaling, cond_dist, sco
                         else:
                             allscores, meanscore = metrics.values[j][1](x_fake_scaled, y_fake, valid_scaled, y_valid, invalid_scaled, scorebars)
                     scores[func, i, j, inst] = meanscore
-
-    reset_folder(f"Results/{timestr}/Scores")
     
+    reset_folder(f"Results/{timestr}/Scores")
+    if plotscores:
+        barplot(scores, methods.index, metrics.index, timestr)
+        
     for i in range(np.shape(scores)[0]):
         meanscores = np.mean(scores[i], axis=(2))
         stds = np.std(scores[i], axis=(2))
@@ -417,6 +421,43 @@ def score(timestr, functions, methods, metrics, numinst, scaling, cond_dist, sco
             scoredf.to_csv(f"Results/{timestr}/Scores/average_scores.csv", index_label=scoredf.columns.name)
         display(scoredf)
 
+def barplot(scores, modelnames, metricnames, timestr):
+    dfs=[]
+    for i in range(np.shape(scores)[0]):
+        for j in range(np.shape(scores)[3]):
+            df = pd.DataFrame(scores[i,:,:,j], columns = metricnames, index = modelnames)
+            df = pd.melt(df, ignore_index=False, var_name = "Metric", value_name = "Score")
+            df["Model"] = df.index
+            dfs.append(df)
+        all_df = pd.concat(dfs, axis=0)
+        all_df = all_df.reset_index()
+        font = {'weight' : 'normal', 'size'   : 12}
+        plt.rc('font', **font)
+        colors = ["#DC267F", "#785EF0", "#648FFF", "#42b27a", "#FFB000", "#FE6100"]
+        width = 0.3*len(metricnames)*(3+len(modelnames))+2
+        g = sns.catplot(data = all_df, x="Metric", y = "Score", hue = "Model", kind="bar", palette = colors, height=5, aspect = width/5)
+        plt.title(f"Problem {i+1} Scores")
+        ax = plt.gca()
+        
+        for p in ax.patches: #Align text on bars 
+            txt = p.get_height()
+            txt_x = p.get_x() + p.get_width() / 2
+            value = '{:.2f}'.format(p.get_height())
+            g.ax.text(txt_x, 0.02, value, ha="center") 
+        
+        #Wrap labels
+        labels = []
+        for label in ax.get_xticklabels(): 
+            text = label.get_text()
+            labels.append(textwrap.fill(text, width=15,
+                          break_long_words=True))
+        ax.set_xticklabels(labels, rotation=0)
+        
+        plt.show()
+        plt.savefig(f"Results/{timestr}/Scores/problem_{i+1}_scores.png")
+
+    
+    
 def reset_folder(folder):     
     if os.path.exists(folder) and os.path.isdir(folder):
         shutil.rmtree(folder)                
