@@ -2,6 +2,9 @@
 
 This dataset and code are presented in the paper: [Beyond Statistical Similarity: Rethinking Metrics for Deep Generative Models in Engineering Design](https://arxiv.org/abs/2302.02913)
 
+Please cite our paper if you use this repo. Thanks! 
+
+Regenwetter, L., Srivastava, A., Gutfreund, D., & Ahmed, F. (2023). Beyond Statistical Similarity: Rethinking Metrics for Deep Generative Models in Engineering Design. arXiv preprint arXiv:2302.02913.
 
 Also check out the [Project page](http://decode.mit.edu/projects/metrics/).
 
