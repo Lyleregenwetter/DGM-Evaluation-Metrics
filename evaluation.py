@@ -9,6 +9,7 @@ from pymoo.indicators.hv import HV
 from pymoo.indicators.gd import GD
 import numpy as np
 import pandas as pd
+import os
 from scipy.spatial.distance import pdist, squareform
 from scipy.spatial import ConvexHull
 import sklearn
@@ -318,7 +319,6 @@ def gen_neg_distance_wrapper(reduction = "min", distance="Euclidean"):
     def gen_neg_distance(x_eval, y_eval, x_data, y_data, n_data, scorebars):
         if scorebars:
             print("Calculating Gen-Neg Distance")
-        print(distance)
         res = calc_distance(x_eval, n_data, distance)
         if reduction == "min":
             scores = tf.reduce_min(res, axis=1)
@@ -431,43 +431,54 @@ def MMD_wrapper(flag, sigma=1, biased=True):
 #         return None, tf.sqrt(mmd)
 #     return MMD2
 
-def F_wrapper(flag, beta=1, num_clusters=20, num_angles=1001, num_runs=10, enforce_balance=False):
+def F_wrapper(flag, beta=1, num_clusters=20, num_angles=1001, num_runs=5, enforce_balance=False):
     def calc_prd(x_eval, y_eval, x_data, y_data, n_data, scorebars):
         if scorebars:
             print("Calculating F" + str(beta))
-        if flag == "x":
-            x = x_eval
-            data = x_data
-        elif flag == "y":
-            x = y_eval
-            data = y_data
-        elif flag == "all":
-            x = pd.concat([x_eval, y_eval], axis=0)
-            data = pd.concat([x_data, y_data], axis=0)
+        if os.path.isfile(f"temp_eval_recall_{flag}.npy") and os.path.isfile(f"temp_eval_precision_{flag}.npy"):
+            recall = np.load(f"temp_eval_recall_{flag}.npy")
+            precision = np.load(f"temp_eval_precision_{flag}.npy")
         else:
-            raise Exception("Unknown flag passed")
-        recall, precision = eval_prd.compute_prd_from_embedding(x, data, num_clusters=num_clusters, num_angles=num_angles, num_runs=num_runs, enforce_balance=enforce_balance)
+            if flag == "x":
+                x = x_eval
+                data = x_data
+            elif flag == "y":
+                x = y_eval
+                data = y_data
+            elif flag == "all":
+                x = pd.concat([x_eval, y_eval], axis=0)
+                data = pd.concat([x_data, y_data], axis=0)
+            else:
+                raise Exception("Unknown flag passed")
+            recall, precision = eval_prd.compute_prd_from_embedding(x, data, num_clusters=num_clusters, num_angles=num_angles, num_runs=num_runs, enforce_balance=enforce_balance)
+            np.save(f"temp_eval_recall_{flag}.npy", recall)
+            np.save(f"temp_eval_precision_{flag}.npy", precision)
         F = eval_prd._prd_to_f_beta(precision, recall, beta=beta, epsilon=1e-10)
-        prd_data = [np.array([precision,recall])]
         return None, max(F)
     return calc_prd
 
-def AUC_wrapper(flag, num_clusters=20, num_angles=1001, num_runs=10, enforce_balance=False, plot=False):
+def AUC_wrapper(flag, num_clusters=20, num_angles=1001, num_runs=5, enforce_balance=False, plot=False):
     def calc_prd(x_eval, y_eval, x_data, y_data, n_data, scorebars):
         if scorebars:
             print("Calculating AUC")
-        if flag == "x":
-            x = x_eval
-            data = x_data
-        elif flag == "y":
-            x = y_eval
-            data = y_data
-        elif flag == "all":
-            x = pd.concat([x_eval, y_eval], axis=0)
-            data = pd.concat([x_data, y_data], axis=0)
+        if os.path.isfile(f"temp_eval_recall_{flag}.npy") and os.path.isfile(f"temp_eval_precision_{flag}.npy"):
+            recall = np.load(f"temp_eval_recall_{flag}.npy")
+            precision = np.load(f"temp_eval_precision_{flag}.npy")
         else:
-            raise Exception("Unknown flag passed")
-        recall, precision = eval_prd.compute_prd_from_embedding(x, data, num_clusters=num_clusters, num_angles=num_angles, num_runs=num_runs, enforce_balance=enforce_balance)
+            if flag == "x":
+                x = x_eval
+                data = x_data
+            elif flag == "y":
+                x = y_eval
+                data = y_data
+            elif flag == "all":
+                x = pd.concat([x_eval, y_eval], axis=0)
+                data = pd.concat([x_data, y_data], axis=0)
+            else:
+                raise Exception("Unknown flag passed")
+            recall, precision = eval_prd.compute_prd_from_embedding(x, data, num_clusters=num_clusters, num_angles=num_angles, num_runs=num_runs, enforce_balance=enforce_balance)
+            np.save(f"temp_eval_recall_{flag}.npy", recall)
+            np.save(f"temp_eval_precision_{flag}.npy", precision)
         F1 = eval_prd._prd_to_f_beta(precision, recall, beta=1, epsilon=1e-10)
         prd_data = [np.array([precision,recall])]
         if plot:
@@ -475,6 +486,7 @@ def AUC_wrapper(flag, num_clusters=20, num_angles=1001, num_runs=10, enforce_bal
         tot = 0
         for i in range(len(precision)-1):
             tot+=(precision[i]+precision[i+1])/2*(recall[i+1]-recall[i])
+        
         return None, tot
     return calc_prd
 

@@ -71,12 +71,14 @@ class generator(keras.Model):
         return x
 
 class PadGAN(object):
-    def __init__(self, conditional, noise_dim = 2, data_dim = 2, lambda0 = 2.0, lambda1 = 0.5):
+    def __init__(self, conditional, noise_dim = 2, data_dim = 2, lambda0 = 2.0, lambda1 = 0.5, numgen=None, condition=None):
 
         self.noise_dim = noise_dim
         self.data_dim = data_dim
         self.lambda0 = lambda0
         self.lambda1 = lambda1
+        self.def_numgen = numgen
+        self.def_condition=condition
         self.EPSILON = 1e-5
         self.train_conditional = conditional
         self.discriminator = discriminator()
@@ -183,7 +185,12 @@ class PadGAN(object):
         
         return d_loss_real, d_loss_fake, g_loss, dpp_loss, mean_y
     
-    def train(self, X, C, equation, steps=10000, batch_size=8, disc_lr=1e-3, gen_lr=1e-3):
+    def train(self, X, C, num_anim, equation, steps=10000, batch_size=8, disc_lr=1e-3, gen_lr=1e-3):
+        
+        if num_anim: #For use when saving generated samples at intermediate steps in training
+            results = [] #List of generated arrays at various steps in the training process
+            checkpoint_steps=[] #Epoch counts corresponding to the generated arrays
+        
         g_optimizer = keras.optimizers.Adam(learning_rate = gen_lr, beta_1=0.5)
         d_optimizer = keras.optimizers.Adam(learning_rate = disc_lr, beta_1=0.5)
         
@@ -198,6 +205,16 @@ class PadGAN(object):
             steps_range.set_postfix_str(
                     "[D] R = %+.7f, F = %+.7f [G] F = %+.7f, dpp = %+.7f,  y = %+.7f" % (d_loss_real, d_loss_fake,
                                                                                          g_loss, dpp_loss, mean_y))
+            if num_anim and ((step+1)*num_anim)%steps<num_anim:
+                result = self.generate(self.def_numgen, self.def_condition)
+                results.append(result)
+                checkpoint_steps.append(step+1)
+        if num_anim:
+            results = np.stack(results)
+            checkpoint_steps = np.array(checkpoint_steps)
+            return results, checkpoint_steps
+        else:
+            return self
     def generate(self, num, c):
         z = tf.random.normal((num, self.noise_dim), stddev = 0.5, dtype=tf.float32)
         if self.train_conditional:
@@ -281,9 +298,9 @@ def fit_regressor(X,Y, regparams):
     print("Fit regressor with R2: " + str(r2))
     return model
 
-def train_padgan(X, N, Y, C, config_params=None, train_params=None, DTAI_params=None, classifier_params=None, regressor_params=None):
+def train_padgan(X, N, Y, C, numgen, numanim, condition, config_params=None, train_params=None, DTAI_params=None, classifier_params=None, regressor_params=None):
     scaling, DTAI, CLF, classifier, regressor, conditional= config_params
-    lambda0, lambda1, noise_dim, steps= train_params
+    batch_size, disc_lr, gen_lr, lambda0, lambda1, noise_dim, steps= train_params
     ref, p_, a_= DTAI_params
     if scaling:
         y_scaler = StandardScaler()
@@ -328,14 +345,13 @@ def train_padgan(X, N, Y, C, config_params=None, train_params=None, DTAI_params=
             raise Exception("Training in conditional mode but no conditioning data supplied!")
         C=X
         
-    model = PadGAN(conditional, lambda0=lambda0, lambda1=lambda1, noise_dim = noise_dim, data_dim = len(X[0,:]))
+    model = PadGAN(conditional, lambda0=lambda0, lambda1=lambda1, numgen=numgen, condition=condition, noise_dim = noise_dim, data_dim = len(X[0,:]))
     def pad_aux_loss_wrapper(X):
         return pad_aux_loss(X, regressor, classifier, y_scaler, eval_func)
-    model.train(X, C, pad_aux_loss_wrapper, steps=steps)
-    return model
+    return model.train(X, C, numanim, pad_aux_loss_wrapper, steps=steps, batch_size=batch_size, disc_lr=disc_lr, gen_lr=gen_lr)
     
 def padgan_wrapper(config_params=None, train_params=None, DTAI_params=None, classifier_params=None, regressor_params=None):
-    def model(X, N, Y, C):
-        return train_padgan(X, N, Y, C, config_params=config_params, train_params=train_params, DTAI_params=DTAI_params, classifier_params=classifier_params, regressor_params=regressor_params)
+    def model(X, N, Y, C, numgen=None, numanim=None, condition=None):
+        return train_padgan(X, N, Y, C, numgen=numgen, numanim=numanim, condition=condition, config_params=config_params, train_params=train_params, DTAI_params=DTAI_params, classifier_params=classifier_params, regressor_params=regressor_params)
     return model
   

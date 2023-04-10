@@ -1,6 +1,6 @@
 from tensorflow import keras
 from tensorflow.keras import layers
-from tensorflow.keras.models import Model
+from tqdm.autonotebook import tqdm, trange
 import numpy as np
 import tensorflow as tf
 
@@ -15,9 +15,12 @@ class Sampling(layers.Layer):
         return z_mean + tf.exp(0.5 * z_log_var) * epsilon
 
 
-class VAE(keras.Model):
-    def __init__(self, datadims, conddims, conditional, latent_dim, kl_weight, **kwargs):
+class VAE(object):
+    def __init__(self, datadims, conddims, conditional, latent_dim, kl_weight, learning_rate, numgen, condition, **kwargs):
         super(VAE, self).__init__(**kwargs)
+        self.optimizer=keras.optimizers.Adam(learning_rate=learning_rate)
+        self.def_numgen = numgen
+        self.def_condition=condition
         self.dim_x = datadims
         self.dim_cond = conddims
         self.latent_dim = latent_dim
@@ -25,10 +28,6 @@ class VAE(keras.Model):
         self.encoder=self.build_encoder()
         self.decoder=self.build_decoder()
         self.train_conditional = conditional
-        self.total_loss_tracker = keras.metrics.Mean(name="total_loss")
-        self.reconstruction_loss_tracker = keras.metrics.Mean(
-            name="reconstruction_loss")
-        self.kl_loss_tracker = keras.metrics.Mean(name="kl_loss")
         
     def build_encoder(self): 
         inp = layers.Input(shape=self.dim_x+ self.dim_cond)
@@ -61,8 +60,7 @@ class VAE(keras.Model):
         res = tf.concat([x, c], axis=1)
         return res
     
-    def train_step(self, inp):
-        data, cond = inp[0]
+    def train_step(self, data, cond):
         
         #Start gradient tape in which we calculate all losses
         with tf.GradientTape() as tape:
@@ -94,16 +92,38 @@ class VAE(keras.Model):
             total_loss = reconstruction_loss + self.kl_weight*kl_loss
             
         #Apply gradients
-        grads = tape.gradient(total_loss, self.trainable_weights)
-        self.optimizer.apply_gradients(zip(grads, self.trainable_weights))
-        self.total_loss_tracker.update_state(total_loss)
-        self.reconstruction_loss_tracker.update_state(reconstruction_loss)
-        self.kl_loss_tracker.update_state(kl_loss)
-        return {
-            "loss": self.total_loss_tracker.result(),
-            "reconstruction_loss": self.reconstruction_loss_tracker.result(),
-            "kl_loss": self.kl_loss_tracker.result(),
-        } 
+        allweights = self.encoder.trainable_weights + self.decoder.trainable_weights
+        grads = tape.gradient(total_loss, allweights)
+        self.optimizer.apply_gradients(zip(grads, allweights))
+        return total_loss, reconstruction_loss, kl_loss 
+        
+    def train(self, X, C, num_anim, steps=10000, batch_size=8, disc_lr=1e-3, gen_lr=1e-3):
+        
+        if num_anim: #For use when saving generated samples at intermediate steps in training
+            results = [] #List of generated arrays at various steps in the training process
+            checkpoint_steps=[] #Epoch counts corresponding to the generated arrays
+        
+        
+        steps_range = trange(steps, desc='GAN Training:', leave=True, ascii ="         =")
+        
+        for step in steps_range:
+            ind = np.random.choice(X.shape[0], size=batch_size, replace=False)
+            X_batch = tf.cast(X[ind],tf.float32)
+            C_batch = tf.cast(C[ind],tf.float32)
+            loss, reconstruction_loss, kl_loss = self.train_step(X_batch, C_batch)
+            
+            steps_range.set_postfix_str(
+                    "L = %+.7f, reconstruction = %+.7f [G] KL = %+.7f" % (loss, reconstruction_loss, kl_loss))
+            if num_anim and ((step+1)*num_anim)%steps<num_anim:
+                result = self.generate(self.def_numgen, self.def_condition)
+                results.append(result)
+                checkpoint_steps.append(step+1)
+        if num_anim:
+            results = np.stack(results)
+            checkpoint_steps = np.array(checkpoint_steps)
+            return results, checkpoint_steps
+        else:
+            return self
         
     def generate(self, num, c):
         #Sample latent vector
@@ -117,15 +137,14 @@ class VAE(keras.Model):
         return self.decoder(z)
 
 #Takes 4 inputs: X is real data, N is invalid data (unused), Y is performance values (unused), C is conditioning data
-def train_VAE(X, N, Y, C, train_params=None):
+def train_VAE(X, N, Y, C, numgen, numanim, condition, train_params=None):
     #Unpack parameters
     epochs, batch_size, learning_rate, latent_dim, kl_weight, conditional= train_params
     #Initialize and Compile model
     if conditional:
-        V = VAE(len(X[0]), 1, conditional, latent_dim, kl_weight)
+        V = VAE(len(X[0]), 1, conditional, latent_dim, kl_weight, learning_rate, numgen, condition)
     else:
-        V = VAE(len(X[0]), 0, conditional, latent_dim, kl_weight)
-    V.compile(optimizer=keras.optimizers.Adam(learning_rate=learning_rate))
+        V = VAE(len(X[0]), 0, conditional, latent_dim, kl_weight, learning_rate, numgen, condition)
     
     #If C is none, set to X to avoid issues. It will be unused
     if C is None:
@@ -133,21 +152,12 @@ def train_VAE(X, N, Y, C, train_params=None):
             raise Exception("Training in conditional mode but no conditioning data supplied!")
         C=X
     
-    #Convert things to float32 tensors
-    X=tf.convert_to_tensor(X)
-    X = tf.cast(X,tf.float32)
-    C=tf.convert_to_tensor(C)
-    C = tf.cast(C,tf.float32)
-    
     #Fit VAE
-    V.fit([X,C], epochs=epochs, batch_size=batch_size)
-    
-    #Return fitted VAE object
-    return V
+    return V.train(X, C, numanim, batch_size = batch_size, steps=epochs)
 
 #Wrapper function for VAE to be able to call in loop with other models
 
 def VAE_wrapper(train_params=None):
-    def model(X, N, Y, C):
-        return train_VAE(X, N, Y, C, train_params=train_params)
+    def model(X, N, Y, C, numgen=None, numanim=None, condition=None):
+        return train_VAE(X, N, Y, C, numgen=numgen, numanim=numanim, condition=condition, train_params=train_params)
     return model
