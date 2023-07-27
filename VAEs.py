@@ -4,6 +4,8 @@ from tqdm.autonotebook import tqdm, trange
 import numpy as np
 import tensorflow as tf
 
+import plotutils
+
 class Sampling(layers.Layer):
     """Uses (z_mean, z_log_var) to sample z, the vector encoding a digit."""
 
@@ -97,27 +99,34 @@ class VAE(object):
         self.optimizer.apply_gradients(zip(grads, allweights))
         return total_loss, reconstruction_loss, kl_loss 
         
-    def train(self, X, C, num_anim, steps=10000, batch_size=8, disc_lr=1e-3, gen_lr=1e-3):
+    def train(self, X, C, num_anim, steps=10000, batch_size=8, disc_lr=1e-3, gen_lr=1e-3, savedir=None):
         
         if num_anim: #For use when saving generated samples at intermediate steps in training
             results = [] #List of generated arrays at various steps in the training process
             checkpoint_steps=[] #Epoch counts corresponding to the generated arrays
         
         
-        steps_range = trange(steps, desc='GAN Training:', leave=True, ascii ="         =")
-        
+        steps_range = trange(steps, desc='VAE Training:', leave=True, ascii ="         =")
+        all_status = []
         for step in steps_range:
             ind = np.random.choice(X.shape[0], size=batch_size, replace=False)
             X_batch = tf.cast(X[ind],tf.float32)
             C_batch = tf.cast(C[ind],tf.float32)
             loss, reconstruction_loss, kl_loss = self.train_step(X_batch, C_batch)
-            
+            status = [["L_R", reconstruction_loss], ["L_KL", kl_loss], ["L_tot", loss]]
+            all_status.append(status)
             steps_range.set_postfix_str(
-                    "L = %+.7f, reconstruction = %+.7f [G] KL = %+.7f" % (loss, reconstruction_loss, kl_loss))
+                    "L = %+.7f, Reconstruction = %+.7f, KL = %+.7f" % (loss, reconstruction_loss, kl_loss))
             if num_anim and ((step+1)*num_anim)%steps<num_anim:
                 result = self.generate(self.def_numgen, self.def_condition)
                 results.append(result)
                 checkpoint_steps.append(step+1)
+
+        if savedir:
+            self.encoder.save(f"{savedir}_encoder")
+            self.decoder.save(f"{savedir}_decoder")
+            plotutils.trainingplots(all_status, f"{savedir}_training_plot")
+
         if num_anim:
             results = np.stack(results)
             checkpoint_steps = np.array(checkpoint_steps)
@@ -137,7 +146,7 @@ class VAE(object):
         return self.decoder(z)
 
 #Takes 4 inputs: X is real data, N is invalid data (unused), Y is performance values (unused), C is conditioning data
-def train_VAE(X, N, Y, C, numgen, numanim, condition, train_params=None):
+def train_VAE(X, N, Y, C, numgen, numanim, condition, train_params=None, savedir=None):
     #Unpack parameters
     epochs, batch_size, learning_rate, latent_dim, kl_weight, conditional= train_params
     #Initialize and Compile model
@@ -153,11 +162,11 @@ def train_VAE(X, N, Y, C, numgen, numanim, condition, train_params=None):
         C=X
     
     #Fit VAE
-    return V.train(X, C, numanim, batch_size = batch_size, steps=epochs)
+    return V.train(X, C, numanim, batch_size = batch_size, steps=epochs, savedir=savedir)
 
 #Wrapper function for VAE to be able to call in loop with other models
 
 def VAE_wrapper(train_params=None):
-    def model(X, N, Y, C, numgen=None, numanim=None, condition=None):
-        return train_VAE(X, N, Y, C, numgen=numgen, numanim=numanim, condition=condition, train_params=train_params)
+    def model(X, N, Y, C, numgen=None, numanim=None, condition=None, savedir=None):
+        return train_VAE(X, N, Y, C, numgen=numgen, numanim=numanim, condition=condition, train_params=train_params, savedir=savedir)
     return model

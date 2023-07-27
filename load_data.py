@@ -118,8 +118,10 @@ def gen_background_plot(validityfunction, rangearr):
     Z = Z.reshape(xx.shape)
     return (xx,yy,Z)
 
-def circles_val_wrapper(rad):
-    def circles_val(a, b, rad=rad):
+def circles_val_wrapper(rad, scale):
+    def circles_val(a, b, rad=rad, scale=scale):
+        a=scale*a
+        b=scale*b
         return np.square(a-np.round(a)) + np.square(b-np.round(b)) >= rad**2
     return circles_val
 
@@ -147,10 +149,23 @@ def radial_circles_val_wrapper(rad, cr, num):
         return allvalid
     return radial_circles_val
 
-def concentric_circles_val_wrapper(n_circ):
-    def concentric_circles_val(a, b, n_circ=n_circ):
+def inv_radial_circles_val_wrapper(rad, cr, num):
+    def radial_circles_val(a, b, rad=rad, cr=cr, num=num):
+        allvalid=np.ones_like(a)
+        for i in range(num):
+            angle=i/num*2*np.pi
+            x = rad*np.cos(angle)
+            y = rad*np.sin(angle)
+            dist= np.sqrt(np.square(a-x)+np.square(b-y))
+            valid = dist>cr
+            allvalid = np.logical_and(valid, allvalid)
+        return allvalid
+    return radial_circles_val
+
+def concentric_circles_val_wrapper(n_circ, size):
+    def concentric_circles_val(a, b, n_circ=n_circ, size=size):
         r = np.sqrt(np.square(a) + np.square(b))
-        return np.logical_and((np.floor(r*2*n_circ)%2 ==0), r<((n_circ-0.5)/n_circ))
+        return np.logical_and(((r*n_circ - np.floor(r*n_circ))<size), r<1)
     return concentric_circles_val
 
 def all_val_wrapper():
@@ -227,36 +242,79 @@ def sample_uniform_wrapper(psamples, nsamples):
         valid = []
         invalid = []
         while len(valid)<psamples or len(invalid)<nsamples:
-            a = random.uniform(*rangearr[0,:])
-            b = random.uniform(*rangearr[1,:])
-            if validityfunction(a,b):
-                if len(valid)<psamples:
-                    valid.append([a,b])
-            else:
-                if len(invalid)<nsamples:
-                    invalid.append([a,b])
-        valid = np.array(valid)
-        invalid = np.array(invalid)
+            samples=10000
+            a = np.random.uniform(*rangearr[0,:], size = samples)
+            b = np.random.uniform(*rangearr[1,:], size = samples)
+            val = validityfunction(a,b)
+            valididx = np.where(val==1)
+            invalidx = np.where(val==0)
+            if len(valid)<psamples:
+                ls = [[a[i],b[i]] for i in valididx[0]]
+                # print(ls)
+                valid = valid + ls
+            if len(invalid)<nsamples:
+                ls = [[a[i],b[i]] for i in invalidx[0]]
+                invalid = invalid + ls
+        valid = np.array(valid)[:psamples,:]
+        invalid = np.array(invalid)[:nsamples,:]
         return valid, invalid
     return sample_uniform
 
-def sample_circle_blobs_wrapper(samples, num_blobs, rad, rs=0.1):
-    def sample_circle_blobs(validityfunction, rangearr, samples=samples, num_blobs=num_blobs, rad=rad, rs=rs):
-        mode = np.random.randint(0, num_blobs, size = samples)
-        angle = mode*np.pi*2/num_blobs
-        a = rad*np.cos(angle)
-        b = rad*np.sin(angle)
-        rs = (np.random.normal(0,1,samples)*rs)
-        sa = np.random.uniform(0,2*np.pi, samples)
-        a = a + rs*np.cos(sa)
-        b = b + rs*np.sin(sa)
-        
-        validity = validityfunction(a,b)
-        allsamples = np.array([a,b]).transpose()
-        valid = allsamples[validity.astype(bool)]
-        invalid = allsamples[~validity.astype(bool)]
-        valid = np.array(valid)
-        invalid = np.array(invalid)
+def sample_gaussian_wrapper(psamples, nsamples, r):
+    def sample_uniform(validityfunction, rangearr, psamples=psamples, nsamples=nsamples, r=r):
+        valid = []
+        invalid = []
+        while len(valid)<psamples or len(invalid)<nsamples:
+            samples=10000
+            r_s = (np.random.normal(0,1,samples)*r)
+            a_s = np.random.uniform(0,2*np.pi, samples)
+            a = r_s*np.cos(a_s)
+            b = r_s*np.sin(a_s)
+            val = validityfunction(a,b)
+            valididx = np.where(val==1)
+            invalidx = np.where(val==0)
+            if len(valid)<psamples:
+                ls = [[a[i],b[i]] for i in valididx[0]]
+                # print(ls)
+                valid = valid + ls
+            if len(invalid)<nsamples:
+                ls = [[a[i],b[i]] for i in invalidx[0]]
+                invalid = invalid + ls
+        valid = np.array(valid)[:psamples,:]
+        invalid = np.array(invalid)[:nsamples,:]
+        return valid, invalid
+    return sample_uniform
+
+def sample_circle_blobs_wrapper(psamples, nsamples, num_blobs, rad, rs=0.1):
+    def sample_circle_blobs(validityfunction, rangearr, psamples=psamples, nsamples=nsamples, num_blobs=num_blobs, rad=rad, rs=rs):
+        valid = []
+        invalid = []
+        while len(valid)<psamples or len(invalid)<nsamples:
+            samples=10000
+            mode = np.random.randint(0, num_blobs, size = samples)
+            angle = mode*np.pi*2/num_blobs
+            a = rad*np.cos(angle)
+            b = rad*np.sin(angle)
+            rs = (np.random.normal(0,1,samples)*rs)
+            sa = np.random.uniform(0,2*np.pi, samples)
+            a = a + rs*np.cos(sa)
+            b = b + rs*np.sin(sa)
+            val = validityfunction(a,b)
+            valididx = np.where(val==1)
+            invalidx = np.where(val==0)
+            if len(valid)<psamples:
+                ls = [[a[i],b[i]] for i in valididx[0]]
+                # print(ls)
+                valid = valid + ls
+            if len(invalid)<nsamples:
+                ls = [[a[i],b[i]] for i in invalidx[0]]
+                invalid = invalid + ls
+            # validity = validityfunction(a,b)
+            # allsamples = np.array([a,b]).transpose()
+            # valid = allsamples[validity.astype(bool)]
+            # invalid = allsamples[~validity.astype(bool)]
+        valid = np.array(valid)[:psamples]
+        invalid = np.array(invalid)[:nsamples]
         return valid, invalid
     return sample_circle_blobs
 # def function_lookup(function):

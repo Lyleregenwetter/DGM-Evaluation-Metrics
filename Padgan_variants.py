@@ -14,6 +14,8 @@ from sklearn.model_selection import train_test_split
 from tensorflow.keras import layers
 import evaluation
 
+import plotutils
+
 class discriminator(keras.Model):
     def __init__(self):
         super(discriminator, self).__init__()
@@ -185,7 +187,7 @@ class PadGAN(object):
         
         return d_loss_real, d_loss_fake, g_loss, dpp_loss, mean_y
     
-    def train(self, X, C, num_anim, equation, steps=10000, batch_size=8, disc_lr=1e-3, gen_lr=1e-3):
+    def train(self, X, C, num_anim, equation, steps=10000, batch_size=8, disc_lr=1e-3, gen_lr=1e-3, savedir=None):
         
         if num_anim: #For use when saving generated samples at intermediate steps in training
             results = [] #List of generated arrays at various steps in the training process
@@ -195,13 +197,14 @@ class PadGAN(object):
         d_optimizer = keras.optimizers.Adam(learning_rate = disc_lr, beta_1=0.5)
         
         steps_range = trange(steps, desc='GAN Training:', leave=True, ascii ="         =")
-        
+        all_status=[]
         for step in steps_range:
             ind = np.random.choice(X.shape[0], size=batch_size, replace=False)
             X_batch = tf.cast(X[ind],tf.float32)
             C_batch = tf.cast(C[ind],tf.float32)
             d_loss_real, d_loss_fake, g_loss, dpp_loss, mean_y = self.train_step(X_batch, C_batch, equation, d_optimizer, g_optimizer)
-            
+            status = [["L_D_R", d_loss_real], ["L_D_F", d_loss_fake], ["L_G", g_loss], ["L_DPP", dpp_loss], ["Mean_Y", mean_y]]
+            all_status.append(status)
             steps_range.set_postfix_str(
                     "[D] R = %+.7f, F = %+.7f [G] F = %+.7f, dpp = %+.7f,  y = %+.7f" % (d_loss_real, d_loss_fake,
                                                                                          g_loss, dpp_loss, mean_y))
@@ -209,6 +212,24 @@ class PadGAN(object):
                 result = self.generate(self.def_numgen, self.def_condition)
                 results.append(result)
                 checkpoint_steps.append(step+1)
+        if savedir:
+            if self.train_conditional:
+                self.generator.build([batch_size, self.noise_dim+1]) #TODO: Update for advanced conditioning
+                self.discriminator.build([batch_size, self.data_dim+1])
+            else:
+                self.generator.build([batch_size, self.noise_dim])
+                self.discriminator.build([batch_size, self.data_dim])
+            self.generator.save(f"{savedir}_generator")
+
+            
+            self.discriminator.save(f"{savedir}_discriminator")
+            try:
+                self.discriminator_aux.build(tf.shape(N_batch).numpy().tolist())
+                self.discriminator_aux.save(f"{savedir}_discriminator_aux")
+            except:
+                pass
+            plotutils.trainingplots(all_status, f"{savedir}_training_plot")
+
         if num_anim:
             results = np.stack(results)
             checkpoint_steps = np.array(checkpoint_steps)
@@ -298,7 +319,7 @@ def fit_regressor(X,Y, regparams):
     print("Fit regressor with R2: " + str(r2))
     return model
 
-def train_padgan(X, N, Y, C, numgen, numanim, condition, config_params=None, train_params=None, DTAI_params=None, classifier_params=None, regressor_params=None):
+def train_padgan(X, N, Y, C, numgen, numanim, condition, config_params=None, train_params=None, DTAI_params=None, classifier_params=None, regressor_params=None, savedir=None):
     scaling, DTAI, CLF, classifier, regressor, conditional= config_params
     batch_size, disc_lr, gen_lr, lambda0, lambda1, noise_dim, steps= train_params
     ref, p_, a_= DTAI_params
@@ -348,10 +369,10 @@ def train_padgan(X, N, Y, C, numgen, numanim, condition, config_params=None, tra
     model = PadGAN(conditional, lambda0=lambda0, lambda1=lambda1, numgen=numgen, condition=condition, noise_dim = noise_dim, data_dim = len(X[0,:]))
     def pad_aux_loss_wrapper(X):
         return pad_aux_loss(X, regressor, classifier, y_scaler, eval_func)
-    return model.train(X, C, numanim, pad_aux_loss_wrapper, steps=steps, batch_size=batch_size, disc_lr=disc_lr, gen_lr=gen_lr)
+    return model.train(X, C, numanim, pad_aux_loss_wrapper, steps=steps, batch_size=batch_size, disc_lr=disc_lr, gen_lr=gen_lr, savedir=savedir)
     
 def padgan_wrapper(config_params=None, train_params=None, DTAI_params=None, classifier_params=None, regressor_params=None):
-    def model(X, N, Y, C, numgen=None, numanim=None, condition=None):
-        return train_padgan(X, N, Y, C, numgen=numgen, numanim=numanim, condition=condition, config_params=config_params, train_params=train_params, DTAI_params=DTAI_params, classifier_params=classifier_params, regressor_params=regressor_params)
+    def model(X, N, Y, C, numgen=None, numanim=None, condition=None, savedir=None):
+        return train_padgan(X, N, Y, C, numgen=numgen, numanim=numanim, condition=condition, config_params=config_params, train_params=train_params, DTAI_params=DTAI_params, classifier_params=classifier_params, regressor_params=regressor_params, savedir=savedir)
     return model
   
