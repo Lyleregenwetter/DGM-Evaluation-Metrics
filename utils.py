@@ -20,43 +20,49 @@ import evaluation
 import load_data
 import plotutils
 
-def fit_and_generate(functions, methods, numinst, numanim, numgen, scaling, obj_status, conditional_status, holdout = 0):
+def fit_and_generate(functions, methods, numinst, numanim, numgen, scaling, obj_status, conditional_status, holdout = 0, resample_dataset=False):
     
     
     timestr = time.strftime("%Y%m%d-%H%M%S")
     
     #Initialize np array to hold generated samples
-    generated = np.zeros((len(functions), len(methods), numinst, numanim, numgen, 2))
-    vs_s = np.zeros((len(functions), numinst)).tolist()
-    is_s = np.zeros((len(functions), numinst)).tolist()
+    generated = []
+    all_checkpoint_steps = []
+    xs_s = np.zeros((len(functions), numinst)).tolist()
+    ps_s = np.zeros((len(functions), numinst)).tolist()
+    ns_s = np.zeros((len(functions), numinst)).tolist()
     hs_s = np.zeros((len(functions), numinst)).tolist()
     scaler_s = np.zeros((len(functions), numinst)).tolist()
-    #Loop over number of model instantiations to test
-    for inst in range(numinst):
-        #Loop over the problems to test
-        for func in range(len(functions)):
-            #Unpack various problem parameters
-            samplingfunction, validityfunction, objectives, rangearr, cond_func, cond = functions[func]
-            
-            #Generate the data
-            valid_scaled, invalid_scaled, holdout_scaled, scaler = load_data.gen_toy_dataset(samplingfunction, validityfunction, objectives, rangearr, holdout, scaling)
+    #Loop over the problems to test
+    for func in range(len(functions)):
+        #Unpack various problem parameters
+        datasetfunction, validityfunction, objectives, rangearr, cond_func, cond = functions[func]
+        #Generate the data
+        distribution_scaled, negative_scaled, holdout_scaled, scaler = load_data.gen_dataset(datasetfunction, holdout, scaling)
+
+        generated.append(np.zeros((len(methods), numinst, numanim, numgen, distribution_scaled.shape[1])))
+        #Loop over number of model instantiations to test
+        for inst in range(numinst):
+            if resample_dataset:
+                if inst>0:
+                    distribution_scaled, negative_scaled, holdout_scaled, scaler = load_data.gen_dataset(datasetfunction, holdout, scaling)
             
             #Get some unscaled versions of the data to use for calculating objectives/condition parameters
             if scaling: 
-                valid = scaler.inverse_transform(valid_scaled)
+                distribution = scaler.inverse_transform(distribution_scaled)
             else:
-                valid = valid_scaled
+                distribution = distribution_scaled
                 
             #Evaluate objective values for all datapoints
             if obj_status:
-                y_valid = load_data.eval_obj(valid, objectives)
+                y_distribution = load_data.eval_obj(distribution, objectives)
             else:
-                y_valid = None
+                y_distribution = None
             #Evaluate condition value for all datapoints
             if conditional_status:
-                c_valid = load_data.eval_obj(valid, [cond_func])
+                c_distribution = load_data.eval_obj(distribution, [cond_func])
             else:
-                c_valid = None
+                c_distribution = None
                 
             checkpoint_steps=[]
             #Loop over DGMs
@@ -65,60 +71,64 @@ def fit_and_generate(functions, methods, numinst, numanim, numgen, scaling, obj_
                 
                 #Train and return generated samples
                 modeldir = f"Results/{timestr}/Models/{methods.index[i]}_Problem_{func}_Instance_{inst}"
-                x_fake_scaled, cps = method(valid_scaled, invalid_scaled, y_valid, c_valid, numgen, numanim, np.full(numgen, np.full(numgen, cond)), savedir = modeldir)
+                x_fake_scaled, cps = method(distribution_scaled, negative_scaled, y_distribution, c_distribution, numgen, numanim, np.full(numgen, np.full(numgen, cond)), savedir = modeldir)
                 checkpoint_steps.append(cps)
                 
                 #Add to generated results array
                 x_fake_scaled = np.array(x_fake_scaled)
-                generated[func, i, inst, :, :, :] = x_fake_scaled
-            vs_s[func][inst] = valid_scaled
-            is_s[func][inst] = invalid_scaled
+                generated[func][i, inst, :, :, :] = x_fake_scaled
+            xs_s[func][inst] = distribution_scaled
+            ns_s[func][inst] = negative_scaled
             hs_s[func][inst] = holdout_scaled
             scaler_s[func][inst] = scaler
-    print(checkpoint_steps)
-    checkpoint_steps = np.stack(checkpoint_steps)
-    save_generated(generated, checkpoint_steps, vs_s, is_s, hs_s, scaler_s, timestr)
+        all_checkpoint_steps.append(np.stack(checkpoint_steps))
+    save_generated(generated, all_checkpoint_steps, xs_s, ps_s, ns_s, hs_s, scaler_s, timestr)
     return timestr
 
 
 #Saves generates samples and data
-def save_generated(generated, checkpoint_steps, vs_s, is_s, hs_s, scaler_s, timestr):
+def save_generated(generated, checkpoint_steps, xs_s, ps_s, ns_s, hs_s, scaler_s, timestr):
     #Save and return results
     try:
         os.mkdir(f"Results/{timestr}")
     except:
         pass
-    os.mkdir(f"Results/{timestr}/Valid_samples")
+    os.mkdir(f"Results/{timestr}/Generated_samples")
     os.mkdir(f"Results/{timestr}/Checkpoint_steps")
-    os.mkdir(f"Results/{timestr}/Invalid_samples")
+    os.mkdir(f"Results/{timestr}/Distribution_samples")
+    os.mkdir(f"Results/{timestr}/Negative_samples")
     os.mkdir(f"Results/{timestr}/Holdout_samples")
     os.mkdir(f"Results/{timestr}/Scalers")
-    np.save(f"Results/{timestr}/Generated_samples.npy", generated)
-    np.save(f"Results/{timestr}/Checkpoint_steps.npy", checkpoint_steps)
-    for i in range(len(vs_s)):
-        for j in range(len(vs_s[i])):
-            np.save(f"Results/{timestr}/Valid_samples/Problem_{i}_Instance_{j}.npy", vs_s[i][j])
-            np.save(f"Results/{timestr}/Invalid_samples/Problem_{i}_Instance_{j}.npy", is_s[i][j])
+    for i in range(len(xs_s)):
+        np.save(f"Results/{timestr}/Generated_samples/Problem_{i}.npy", generated[i])
+        np.save(f"Results/{timestr}/Checkpoint_steps/Problem_{i}.npy", checkpoint_steps[i])
+        for j in range(len(xs_s[i])):
+            np.save(f"Results/{timestr}/Distribution_samples/Problem_{i}_Instance_{j}.npy", xs_s[i][j])
+            np.save(f"Results/{timestr}/Negative_samples/Problem_{i}_Instance_{j}.npy", ns_s[i][j])
             np.save(f"Results/{timestr}/Holdout_samples/Problem_{i}_Instance_{j}.npy", hs_s[i][j])
             file = open(f"Results/{timestr}/Scalers/Problem_{i}_Instance_{j}.pckl","wb")
             pickle.dump(scaler_s[i][j], file)
             
 #Loads generated samples and data
 def load_generated(timestr, numinst, numfunc):
-    generated = np.load(f"Results/{timestr}/Generated_samples.npy")
-    checkpoint_steps = np.load(f"Results/{timestr}/Checkpoint_steps.npy")
-    vs_s = np.zeros((numfunc, numinst)).tolist()
-    is_s = np.zeros((numfunc, numinst)).tolist()
+    
+    generated = []
+    checkpoint_steps = []
+    xs_s = np.zeros((numfunc, numinst)).tolist()
+    ps_s = np.zeros((numfunc, numinst)).tolist()
+    ns_s = np.zeros((numfunc, numinst)).tolist()
     hs_s = np.zeros((numfunc, numinst)).tolist()
     scaler_s = np.zeros((numfunc, numinst)).tolist()
     for i in range(numfunc):
+        generated.append(np.load(f"Results/{timestr}/Generated_samples/Problem_{i}.npy"))
+        checkpoint_steps.append( np.load(f"Results/{timestr}/Checkpoint_steps/Problem_{i}.npy"))
         for j in range(numinst):
-            vs_s[i][j] = np.load(f"Results/{timestr}/Valid_samples/Problem_{i}_Instance_{j}.npy")
-            is_s[i][j] = np.load(f"Results/{timestr}/Invalid_samples/Problem_{i}_Instance_{j}.npy")
+            xs_s[i][j] = np.load(f"Results/{timestr}/Distribution_samples/Problem_{i}_Instance_{j}.npy")
+            ns_s[i][j] = np.load(f"Results/{timestr}/Negative_samples/Problem_{i}_Instance_{j}.npy")
             hs_s[i][j] = np.load(f"Results/{timestr}/Holdout_samples/Problem_{i}_Instance_{j}.npy")
             file = open(f"Results/{timestr}/Scalers/Problem_{i}_Instance_{j}.pckl","rb")
             scaler_s[i][j] = pickle.load(file)
-    return generated, checkpoint_steps, vs_s, is_s, hs_s, scaler_s
+    return generated, checkpoint_steps, xs_s, ns_s, hs_s, scaler_s
 
 #Generates a single 2D data plot
 def plot(ax, rangearr, xx, yy, Z, x, y, x2,y2, title, boundary=0.0, plottype = "generated", validity_status=0, color = "red", target=None):
@@ -199,8 +209,10 @@ def plot(ax, rangearr, xx, yy, Z, x, y, x2,y2, title, boundary=0.0, plottype = "
     
 def plot_all(timestr, functions, methods, numinst, scaling, validity_status, obj_status, conditional_status, cond_dist, color="red", plotobjs=None, plot_steps=True):
     plt.ioff()
-    generated, checkpoint_steps, vs_s, is_s, hs_s, scaler_s= load_generated(timestr, numinst, len(functions))
-    steps = np.shape(generated)[3]
+    generated, checkpoint_steps, xs_s, ns_s, hs_s, scaler_s= load_generated(timestr, numinst, len(functions))
+    checkpoint_steps = np.concatenate(checkpoint_steps, axis=0)
+
+    steps = np.shape(generated[0])[2]
     #Find the highest number of objectives in any problem
     max_obj = 0
     if obj_status:
@@ -225,65 +237,64 @@ def plot_all(timestr, functions, methods, numinst, scaling, validity_status, obj
             #Loop over problems to test
             for func in range(len(functions)):
                 #Unpack problem info
-                samplingfunction, validityfunction, objectives, rangearr, cond_func, cond = functions[func]
+                datasetfunction, validityfunction, objectives, rangearr, cond_func, cond = functions[func]
 
-                valid_scaled = vs_s[func][inst]
-                invalid_scaled = is_s[func][inst]
+                distribution_scaled = xs_s[func][inst]
+                negative_scaled = ns_s[func][inst]
                 scaler = scaler_s[func][inst]
 
                 #Get some unscaled versions for plotting
                 if scaling: 
-                    valid = scaler.inverse_transform(valid_scaled)
+                    distribution = scaler.inverse_transform(distribution_scaled)
                     try:
-                        invalid = scaler.inverse_transform(invalid_scaled)
+                        negative = scaler.inverse_transform(negative_scaled)
                     except:
-                        invalid = np.array([[None,None]])
+                        negative = np.array([[None,None]])
                 else:
-                    valid = valid_scaled
-                    invalid = invalid_scaled
-
+                    distribution = distribution_scaled
+                    negative = negative_scaled
 
                 xx, yy, Z = load_data.gen_background_plot(validityfunction, rangearr)
-                plot(fig.axes[plots_in_row*func], rangearr, xx, yy, Z, valid[:,0], valid[:,1], None, None, 
-                     "Original valid data", validity_status=validity_status, color=color, plottype = "dataset")
+                plot(fig.axes[plots_in_row*func], rangearr, xx, yy, Z, distribution[:,0], distribution[:,1], None, None, 
+                     "Original distribution data", validity_status=validity_status, color=color, plottype = "dataset")
                 if validity_status==1:
-                    plot(fig.axes[plots_in_row*func+1], rangearr, xx, yy, Z, invalid[:,0], invalid[:,1], None, None, 
-                         "Original invalid data", validity_status=validity_status, color=color, plottype = "invalid")
+                    plot(fig.axes[plots_in_row*func+1], rangearr, xx, yy, Z, negative[:,0], negative[:,1], None, None, 
+                         "Original negative data", validity_status=validity_status, color=color, plottype = "invalid")
                 if obj_status:
                     num_objectives = len(objectives)
                     for i in range(num_objectives):
                         xx_o, yy_o, Z_o = load_data.gen_background_plot(objectives[i], rangearr)
                         obj_idx = plots_in_row*func+1+validity_status+i
-                        plot(fig.axes[obj_idx], rangearr, xx_o, yy_o, Z_o, valid[:,0], valid[:,1], None, None, "Objective " +str(i+1), 
+                        plot(fig.axes[obj_idx], rangearr, xx_o, yy_o, Z_o, distribution[:,0], distribution[:,1], None, None, "Objective " +str(i+1), 
                              plottype = "objective", validity_status=validity_status, color=color, target=plotobjs[i])
                 else:
                     num_objectives = 0
                 if conditional_status:
-                    c_valid = load_data.eval_obj(valid, [cond_func])
+                    c_distribution = load_data.eval_obj(distribution, [cond_func])
 
                     xx_o, yy_o, Z_o = load_data.gen_background_plot(cond_func, rangearr)
                     cond_idx=plots_in_row*func+1+validity_status+num_objectives*obj_status
-                    plot(fig.axes[cond_idx], rangearr, xx_o, yy_o, Z_o, valid[:,0], valid[:,1], None, None, "", 
+                    plot(fig.axes[cond_idx], rangearr, xx_o, yy_o, Z_o, distribution[:,0], distribution[:,1], None, None, "", 
                              plottype = "objective", validity_status=validity_status, color=color, target=plotobjs[num_objectives])
 
                 if cond_dist:
-                    mask = evaluation.get_perc_band(cond, c_valid, 0.1)
-                    valid_mask = valid[mask]
-                    if objectives:
-                        y_valid_mask = y_valid[mask]
-                    else:
-                        y_valid_mask = None
-                    valid_scaled_mask = valid_scaled[mask]
-                    cond_mask = c_valid[mask]
+                    mask = evaluation.get_perc_band(cond, c_distribution, 0.1)
+                    distribution_mask = distribution[mask]
+                    # if objectives:
+                    #     y_distribution_mask = y_distribution[mask]
+                    # else:
+                    #     y_distribution_mask = None
+                    # distribution_scaled_mask = distribution_scaled[mask]
+                    # cond_mask = c_distribution[mask]
 
                 #Loop over methods to test
                 for i in range(len(methods)): 
-                    epoch = checkpoint_steps[i, step]
+                    epoch = checkpoint_steps[i][step]
                     if cond_dist:
-                        plot(fig.axes[cond_idx+1], rangearr, xx, yy, Z, valid_mask[:,0], valid_mask[:,1], None, None,
+                        plot(fig.axes[cond_idx+1], rangearr, xx, yy, Z, distribution_mask[:,0], distribution_mask[:,1], None, None,
                                  methods.index[i], validity_status=validity_status, color=color, plottype = "dataset")
                     #TODO Make anim
-                    x_fake_scaled = generated[func, i, inst, step, :, :]
+                    x_fake_scaled = generated[func][i, inst, step, :, :]
 
                     if scaling==True:
                         x_fake = scaler.inverse_transform(x_fake_scaled)
@@ -301,10 +312,10 @@ def plot_all(timestr, functions, methods, numinst, scaling, validity_status, obj
                         labels = labels.astype(bool)
                         plot(fig.axes[res_idx], rangearr, xx, yy, Z, x_fake[:,0][labels], x_fake[:,1][labels], x_fake[:,0][~labels], x_fake[:,1][~labels], f"{methods.index[i]}: Epoch {epoch}", plottype="generated", validity_status = validity_status, color=color)                
                     else:
-                        plot(fig.axes[res_idx], rangearr, xx, yy, Z, x_fake[:,0], x_fake[:,1], valid[:,0], valid[:,1], f"{methods.index[i]}: Epoch {epoch}", 
+                        plot(fig.axes[res_idx], rangearr, xx, yy, Z, x_fake[:,0], x_fake[:,1], distribution[:,0], distribution[:,1], f"{methods.index[i]}: Epoch {epoch}", 
                              plottype="generated", validity_status = validity_status, color=color)
                     if cond_dist:
-                        plot(fig.axes[res_idx+1], rangearr, xx, yy, Z, x_fake[:,0], x_fake[:,1], valid_mask[:,0], valid_mask[:,1],
+                        plot(fig.axes[res_idx+1], rangearr, xx, yy, Z, x_fake[:,0], x_fake[:,1], distribution_mask[:,0], distribution_mask[:,1],
                              f"{methods.index[i]}: Epoch {epoch}", validity_status=validity_status, color=color, plottype = "conditional")
             fig.savefig(f"Results/{timestr}/Plots/Instance_{inst}_{step}.png", dpi=150, transparent=False, facecolor='w')
             if step==steps-1: #Display plot on the last step
@@ -337,7 +348,7 @@ def generate_final_anim(timestr, numinst, step):
     
     
 def score(timestr, functions, methods, metrics, numinst, scaling, cond_dist, scorebars, plotobjs=None, style=True, plotscores=False, score_instances=True):
-    generated, checkpoint_steps, vs_s, is_s, hs_s, scaler_s= load_generated(timestr, numinst, len(functions))
+    generated, checkpoint_steps, xs_s, ns_s, hs_s, scaler_s= load_generated(timestr, numinst, len(functions))
     steps = np.shape(generated)[3]
     scores_steps=np.zeros((len(functions), len(methods), len(metrics), numinst, steps))
 
@@ -347,52 +358,52 @@ def score(timestr, functions, methods, metrics, numinst, scaling, cond_dist, sco
             #Loop over problems to test
             for func in range(len(functions)):
                 #Unpack problem info
-                samplingfunction, validityfunction, objectives, rangearr, cond_func, cond = functions[func]
+                datasetfunction, validityfunction, objectives, rangearr, cond_func, cond = functions[func]
 
-                valid_scaled = vs_s[func][inst]
-                invalid_scaled = is_s[func][inst]
+                distribution_scaled = xs_s[func][inst]
+                negative_scaled = ns_s[func][inst]
                 holdout_scaled = hs_s[func][inst]
                 scaler = scaler_s[func][inst]
 
                 #Get some unscaled versions for plotting
                 if scaling: 
-                    valid = scaler.inverse_transform(valid_scaled)
-                    try:
-                        invalid = scaler.inverse_transform(invalid_scaled)
-                    except:
-                        invalid = np.array([[None,None]])
+                    distribution = scaler.inverse_transform(distribution_scaled)
+                    # try:
+                    #     negative = scaler.inverse_transform(negative_scaled)
+                    # except:
+                    #     negative = np.array([[None,None]])
                     try:
                         holdout = scaler.inverse_transform(holdout_scaled)
                     except:
                         holdout = np.array([[None,None]])
                 else:
-                    valid = valid_scaled
-                    invalid = invalid_scaled
+                    distribution = distribution_scaled
+                    negative = negative_scaled
                     holdout = holdout_scaled
 
                 #Evaluate objective values for all datapoints
                 if objectives:
-                    y_valid = load_data.eval_obj(valid, objectives)
+                    y_distribution = load_data.eval_obj(distribution, objectives)
 
                     #If rediscovery in metrics, calculate y values for holdout
                     if "Rediscovery" in metrics:
-                        holdout_y = load_data.eval_obj(valid, objectives)
+                        holdout_y = load_data.eval_obj(distribution, objectives)
                 else:
-                    y_valid=None
+                    y_distribution=None
 
                 if cond_dist:
-                    c_valid = load_data.eval_obj(valid, [cond_func])
-                    mask = evaluation.get_perc_band(cond, c_valid, 0.1)
-                    valid_mask = valid[mask]
+                    c_distribution = load_data.eval_obj(distribution, [cond_func])
+                    mask = evaluation.get_perc_band(cond, c_distribution, 0.1)
+                    # distribution_mask = distribution[mask]
                     if objectives:
-                        y_valid_mask = y_valid[mask]
+                        y_distribution_mask = y_distribution[mask]
                     else:
-                        y_valid_mask = None
-                    valid_scaled_mask = valid_scaled[mask]
+                        y_distribution_mask = None
+                    distribution_scaled_mask = distribution_scaled[mask]
 
                 #Loop over methods to test
                 for i in range(len(methods)): 
-                    x_fake_scaled = generated[func, i, inst, step, :, :]
+                    x_fake_scaled = generated[func][i, inst, step, :, :]
                     if np.isnan(x_fake_scaled).any():
                         scores_steps[func, i, :, inst, step] = np.nan
                     else:
@@ -410,18 +421,18 @@ def score(timestr, functions, methods, metrics, numinst, scaling, cond_dist, sco
                             if metrics.values[j][1]=="Validity":
                                 allscores, meanscore = evaluation.evaluate_validity(x_fake, validityfunction)
                             elif metrics.values[j][1]=="Rediscovery":
-                                allscores, meanscore = metrics.values[j][2](x_fake_scaled, y_fake, holdout, holdout_y, invalid_scaled, scorebars)
+                                allscores, meanscore = metrics.values[j][2](x_fake_scaled, y_fake, holdout, holdout_y, negative_scaled, scorebars)
                             elif metrics.values[j][1]=="Conditioning Reconstruction":
-                                allscores, meanscore = metrics.values[j][2](x_fake_scaled, y_fake, valid_scaled, c_valid, invalid_scaled, scorebars)
+                                allscores, meanscore = metrics.values[j][2](x_fake_scaled, y_fake, distribution_scaled, c_distribution, negative_scaled, scorebars)
                             elif metrics.values[j][1]=="Conditioning Adherence":
                                 c_gen = load_data.eval_obj(x_fake, [cond_func])
                                 allscores=None
                                 meanscore = sklearn.metrics.mean_squared_error(c_gen, np.ones_like(c_gen)*cond)
                             else:
                                 if cond_dist:
-                                    allscores, meanscore = metrics.values[j][1](x_fake_scaled, y_fake, valid_scaled_mask, y_valid_mask, invalid_scaled, scorebars)
+                                    allscores, meanscore = metrics.values[j][1](x_fake_scaled, y_fake, distribution_scaled_mask, y_distribution_mask, negative_scaled, scorebars)
                                 else:
-                                    allscores, meanscore = metrics.values[j][1](x_fake_scaled, y_fake, valid_scaled, y_valid, invalid_scaled, scorebars)
+                                    allscores, meanscore = metrics.values[j][1](x_fake_scaled, y_fake, distribution_scaled, y_distribution, negative_scaled, scorebars)
                             scores_steps[func, i, j, inst, step] = meanscore
                         clear_temporary_files()
     scores = scores_steps[:,:,:,:,-1] #Isolate only the final scores (no intermediate training scores)
@@ -471,6 +482,7 @@ def clear_temporary_files():
         os.remove(filename) 
         
 def trainingplots(scores_steps, checkpoint_steps, modelnames, metricnames, directions, timestr, colors):
+    checkpoint_steps = np.concatenate(checkpoint_steps, axis=0)
     numfunctions, nummethods, nummetrics, numinst, numsteps = np.shape(scores_steps)
     metricnames = [f"{metricnames[i]} ({directions[i]})" for i in range(len(directions))]
     font = {'weight' : 'normal', 'size'   : 12}

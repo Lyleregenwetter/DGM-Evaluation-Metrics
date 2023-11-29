@@ -160,8 +160,8 @@ def distance_to_centroid_wrapper(flag, distance="Euclidean"):
     return distance_to_centroid
 
 
-def DPP_diversity_wrapper(flag, subset_size=10, lambda0=0.1):
-    def DPP_diversity(x_eval, y_eval, x_data, y_data, n_data, scorebars, lambda0=lambda0):
+def DPP_diversity_wrapper(flag, subset_size=10):
+    def DPP_diversity(x_eval, y_eval, x_data, y_data, n_data, scorebars, flag=flag):
         # Average log determinant
         if flag == "x":
             x = x_eval
@@ -176,13 +176,8 @@ def DPP_diversity_wrapper(flag, subset_size=10, lambda0=0.1):
         D = r - 2 * tf.matmul(x, tf.transpose(x)) + tf.transpose(r)
         S = tf.exp(-0.5 * tf.math.square(D))
         y = tf.ones(np.shape(x)[0])
-        Q = tf.tensordot(tf.expand_dims(y, 1), tf.expand_dims(y, 0), 1)
-        if lambda0 == 0.:
-            L = S
-        else:
-            L = S * tf.math.pow(Q, lambda0)
         try:
-            eig_val, _ = tf.linalg.eigh(L)
+            eig_val, _ = tf.linalg.eigh(S)
         except: 
             eig_val = tf.ones_like(y)
         loss = -tf.reduce_mean(tf.math.log(tf.math.maximum(eig_val, 1e-7)))
@@ -329,10 +324,10 @@ def gen_neg_distance_wrapper(reduction = "min", distance="Euclidean"):
         return scores, tf.reduce_mean(scores)
     return gen_neg_distance
 
-def MMD_wrapper(flag, sigma=1, biased=True):
+def MMD_wrapper(flag, sigma=1, batch_size=1000, num_iter=100, biased=True):
     def MMD(x_eval, y_eval, x_data, y_data, n_data, scorebars, flag=flag, sigma=sigma, biased=biased):
         if scorebars:
-            print("Calculating Maximum Mean Discrepancy")
+                print("Calculating Maximum Mean Discrepancy")
         if flag == "x":
             x = x_eval
             data = x_data
@@ -344,92 +339,48 @@ def MMD_wrapper(flag, sigma=1, biased=True):
             data = pd.concat([x_data, y_data], axis=0)
         else:
             raise Exception("Unknown flag passed")
-        X = x
-        Y = data
-        X = tf.convert_to_tensor(X, dtype=tf.float32)
-        Y = tf.convert_to_tensor(Y, dtype=tf.float32)
-        gamma = 1 / (2 * sigma**2)
-    
-        XX = tf.matmul(X, tf.transpose(X))
-        XY = tf.matmul(X, tf.transpose(Y))
-        YY = tf.matmul(Y, tf.transpose(Y))
-    
-        X_sqnorms = tf.linalg.diag_part(XX)
-        Y_sqnorms = tf.linalg.diag_part(YY)
-    
-        K_XY = tf.math.exp(-gamma * (
-                -2 * XY + X_sqnorms[:, np.newaxis] + Y_sqnorms[np.newaxis, :]))
-    #             -2 * XY + tf.expand_dims(X_sqnorms, 1) + tf.expand_dims(Y_sqnorms, 0)))
-    
-        K_XX = tf.math.exp(-gamma * (
-                -2 * XX + X_sqnorms[:, np.newaxis] + X_sqnorms[np.newaxis, :]))
-        K_YY = tf.math.exp(-gamma * (
-                -2 * YY + Y_sqnorms[:, np.newaxis] + Y_sqnorms[np.newaxis, :]))
+        total=0
+        for i in range(num_iter):
+            if len(x) > batch_size:
+                X = x[np.random.randint(x.shape[0], size=batch_size), :]    
+            else:
+                X = x
+            if len(data) > batch_size:
+                Y = data[np.random.randint(data.shape[0], size=batch_size), :]
+            else:
+                Y = data
+            X = tf.convert_to_tensor(X, dtype=tf.float32)
+            Y = tf.convert_to_tensor(Y, dtype=tf.float32)
+            gamma = 1 / (2 * sigma**2)
         
-        if biased:
-            mmd2 = tf.math.reduce_mean(K_XX) + tf.math.reduce_mean(K_YY) - 2 * tf.math.reduce_mean(K_XY)
-        else:
-            m = K_XX.shape[0]
-            n = K_YY.shape[0]
-    
-            mmd2 = ((K_XX.sum() - m) / (m * (m - 1))
-                  + (K_YY.sum() - n) / (n * (n - 1))
-                  - 2 * K_XY.mean())
-        return None, mmd2.numpy()
+            XX = tf.matmul(X, tf.transpose(X))
+            XY = tf.matmul(X, tf.transpose(Y))
+            YY = tf.matmul(Y, tf.transpose(Y))
+        
+            X_sqnorms = tf.linalg.diag_part(XX)
+            Y_sqnorms = tf.linalg.diag_part(YY)
+        
+            K_XY = tf.math.exp(-gamma * (
+                    -2 * XY + X_sqnorms[:, np.newaxis] + Y_sqnorms[np.newaxis, :]))
+        #             -2 * XY + tf.expand_dims(X_sqnorms, 1) + tf.expand_dims(Y_sqnorms, 0)))
+        
+            K_XX = tf.math.exp(-gamma * (
+                    -2 * XX + X_sqnorms[:, np.newaxis] + X_sqnorms[np.newaxis, :]))
+            K_YY = tf.math.exp(-gamma * (
+                    -2 * YY + Y_sqnorms[:, np.newaxis] + Y_sqnorms[np.newaxis, :]))
+            
+            if biased:
+                mmd2 = tf.math.reduce_mean(K_XX) + tf.math.reduce_mean(K_YY) - 2 * tf.math.reduce_mean(K_XY)
+            else:
+                m = K_XX.shape[0]
+                n = K_YY.shape[0]
+        
+                mmd2 = ((K_XX.sum() - m) / (m * (m - 1))
+                    + (K_YY.sum() - n) / (n * (n - 1))
+                    - 2 * K_XY.mean())
+            total+=mmd2
+        return None, total.numpy()/num_iter
     return MMD
-
-# def MMD2_wrapper(batch_size = 128, sigma = [1,2,4,8,16], eps=10e-7):
-#     def MMD2(x_eval, y_eval, x_data, y_data, n_data, scorebars, batch_size = batch_size, sigma = sigma, eps=eps):
-#         x_eval=tf.cast(x_eval, "float32")
-#         x_data=tf.cast(x_data, "float32")
-#         gen_x = tf.data.Dataset.from_tensor_slices(x_eval).batch(batch_size)
-#         x = tf.data.Dataset.from_tensor_slices(x_data).batch(batch_size)
-#         print(x)
-# #         for i in range(
-            
-            
-#     #     slim = tf.contrib.slim
-#     #     x = slim.flatten(x)
-#     #     gen_x = slim.flatten(gen_x)
-
-#         # concatenation of the generated images and images from the dataset
-#         # first 'N' rows are the generated ones, next 'M' are from the data
-#         X = tf.concat([gen_x, x],0)
-
-#         # dot product between all combinations of rows in 'X'
-#         XX = tf.matmul(X, tf.transpose(X))
-
-#         # dot product of rows with themselves
-#         X2 = tf.reduce_sum(X * X, 1, keepdims = True)
-
-#         # exponent entries of the RBF kernel (without the sigma) for each
-#         # combination of the rows in 'X'
-#         # -0.5 * (x^Tx - 2*x^Ty + y^Ty)
-#         exponent = XX - 0.5 * X2 - 0.5 * tf.transpose(X2)
-
-#         # scaling constants for each of the rows in 'X'
-#         s = makeScaleMatrix(batch_size, batch_size)
-
-#         # scaling factors of each of the kernel values, corresponding to the
-#         # exponent values
-#         S = tf.matmul(s, tf.transpose(s))
-
-#         loss1 = 0
-#         loss2 = 0
-#         mmd = 0
-
-#         # for each bandwidth parameter, compute the MMD value and add them all
-#         n = batch_size
-#         n_sq = float(n*n)
-#         for i in range(len(sigma)):
-
-#             # kernel values for each combination of the rows in 'X' 
-#             kernel_val = tf.exp(1.0 / sigma[i] * exponent)
-#             mmd += tf.reduce_sum(S * kernel_val)
-
-
-#         return None, tf.sqrt(mmd)
-#     return MMD2
 
 def F_wrapper(flag, beta=1, num_clusters=20, num_angles=1001, num_runs=5, enforce_balance=False):
     def calc_prd(x_eval, y_eval, x_data, y_data, n_data, scorebars):
@@ -491,9 +442,7 @@ def AUC_wrapper(flag, num_clusters=20, num_angles=1001, num_runs=5, enforce_bala
     return calc_prd
 
 def evaluate_validity(x_fake, validityfunction):
-    scores = np.zeros(np.shape(x_fake)[0])
-    for i in range(np.shape(x_fake)[0]):
-        scores[i] = validityfunction(x_fake[i,0], x_fake[i,1])
+    scores = validityfunction(x_fake)
     return scores, np.mean(scores)
 
 def convex_hull_wrapper(flag):
