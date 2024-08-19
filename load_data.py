@@ -127,6 +127,13 @@ def ring_val_wrapper(rad, thickness):
         return np.logical_and(np.less_equal(-thickness/2, rad_act), np.less_equal(rad_act, thickness/2))
     return ring_val
 
+def plus_val_wrapper(l, w):
+    def plus_val(x, l=l, w=w):
+        a = x[:,0]
+        b = x[:,1]
+        return np.logical_not(np.logical_or(np.logical_and(np.abs(a)<l/2, np.abs(b)<w/2), np.logical_and(np.abs(a)<w/2, np.abs(b)<l/2)))
+    return plus_val
+
 def rectangles_val_wrapper(a_sc, b_sc):
     def rectangles_val(a, b, a_sc=a_sc, b_sc=b_sc):
         a = x[:,0]
